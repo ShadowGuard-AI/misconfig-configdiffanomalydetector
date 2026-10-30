@@ -1,3 +1,5 @@
+![Banner](banner.png)
+
 # misconfig-ConfigDiffAnomalyDetector
 Analyzes configuration diffs over time and flags anomalies based on frequency or severity of changes. Leverages simple statistical methods to identify unusual config modifications. - Focused on Check for misconfigurations in configuration files or infrastructure definitions
 
