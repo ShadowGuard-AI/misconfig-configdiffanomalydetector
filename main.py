@@ -45,6 +45,11 @@ class ConfigDiffAnomalyDetector:
                 try:
                     with open(filepath, 'r') as f:
                         content = f.read()
+                        # A file that fails to read is simply absent from this mapping,
+                        # not marked as failed. When its current version shows up in the
+                        # scan it looks like a file seen for the first time, and the run
+                        # only fails later through the compared count, with nothing in
+                        # the output tying that failure back to this read error.
                         self.config_history[filename] = [content]
 
                 except Exception as e:
@@ -79,6 +84,9 @@ class ConfigDiffAnomalyDetector:
         """
         latest_content = self.get_latest_config(filename)
 
+        # An empty snapshot file and a missing snapshot file land in the
+        # same branch, because empty content is falsy. Either way the
+        # current content becomes the history and nothing is compared.
         if not latest_content:
             logging.info(f"First time seeing config file: {filename}")
             self.config_history[filename] = [new_content]
@@ -87,6 +95,11 @@ class ConfigDiffAnomalyDetector:
 
         diff = difflib.unified_diff(latest_content.splitlines(), new_content.splitlines(), fromfile="old", tofile="new")
         diff_lines = list(diff)
+        # The numerator counts every line difflib emits, headers and
+        # context lines included, so the ratio is not the share of lines
+        # that changed. On a small file a one line change arrives with
+        # several lines of diff furniture and can cross a 0.1 threshold
+        # that reads as if it meant ten percent of the content.
         diff_ratio = len(diff_lines) / (len(latest_content.splitlines()) + len(new_content.splitlines()) + 1e-9) #Avoid zero division
 
         logging.debug(f"Diff ratio for {filename}: {diff_ratio}")
@@ -133,6 +146,11 @@ class ConfigDiffAnomalyDetector:
                     logging.info(f"yamllint passed for {filename}")
                     return True
             except FileNotFoundError:
+                # A missing linter fails the file here, through the False just
+                # below. That is stricter than some of my other tools, which
+                # skip a missing linter, and it compounds: every YAML file
+                # skips, nothing gets compared, and scan_directory reports
+                # that nothing was checked.
                 logging.error("yamllint not found. Please ensure it is installed.")
                 return False
         elif filename.endswith(".json"):
@@ -164,6 +182,11 @@ class ConfigDiffAnomalyDetector:
         compared_count = 0
         skipped_count = 0
         for filename in os.listdir(self.config_dir):
+            # The match is a bare suffix test against words like yaml, with
+            # no dot required, so a file named notyaml qualifies, while a
+            # .yml file does not, because yml is not in the default list
+            # even though run_linters below knows how to lint it. The scan
+            # also lists one directory level only: nothing recurses.
             if any(filename.endswith(ext) for ext in self.file_types):
                 filepath = os.path.join(self.config_dir, filename)
                 try:
@@ -181,6 +204,10 @@ class ConfigDiffAnomalyDetector:
                     if had_history:
                         compared_count += 1
 
+                    # The current content joins the history even when it was just
+                    # flagged as an anomaly. Within one run nothing reads it back,
+                    # but a second scan on the same detector object would compare
+                    # against this run's files instead of the snapshot.
                     self.update_config_history(filename, new_content)
 
 
